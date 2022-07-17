@@ -1,3 +1,6 @@
+# SIMPLE TEST SCRIPT TO VALIDATE FEATURES ADDED
+
+from my_debugger_defines import *
 import my_debugger
 
 debugger = my_debugger.debugger()
@@ -10,6 +13,10 @@ printf_address = debugger.func_resolve("msvcrt.dll", "printf")
 
 print(f"[*] Address of printf: {hex(printf_address)}")
 
-debugger.bp_set_sw(printf_address)
+# To set software breakpoint uncomment following statement
+#debugger.bp_set_sw(printf_address)
+
+# To set hardware breakpoint uncomment following statement
+#debugger.bp_set_hw(printf_address, 1, HW_EXECUTE)
 
 debugger.run()

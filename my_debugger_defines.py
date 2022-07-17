@@ -1,11 +1,11 @@
 from asyncio.windows_events import INFINITE
-from ctypes import *
+from ssl import HAS_NEVER_CHECK_COMMON_NAME
+from py_compile import PycInvalidationMode
 from doctest import OutputChecker
 from logging import Handler
 from pickle import FALSE
-from py_compile import PycInvalidationMode
-from ssl import HAS_NEVER_CHECK_COMMON_NAME
 from subprocess import *
+from ctypes import *
 
 # Let's map the Microsoft types to ctypes for clarity
 BOOL        = c_bool
@@ -69,6 +69,11 @@ THREAD_ALL_ACCESS   = 0x001F03FF
 # Context flags for GetThreadContext()
 CONTEXT_FULL            = 0x00010007
 CONTEXT_DEBUG_REGISTERS = 0x00010010
+
+# Hardware breakpoint conditions
+HW_EXECUTE  = 0x00000000
+HW_WRITE    = 0x00000001
+HW_ACCESS   = 0x00000003
 
 # Data structures for CreateProcessA() function
 class STARTUPINFO(Structure):
