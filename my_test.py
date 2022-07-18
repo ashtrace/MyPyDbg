@@ -19,4 +19,7 @@ print(f"[*] Address of printf: {hex(printf_address)}")
 # To set hardware breakpoint uncomment following statement
 #debugger.bp_set_hw(printf_address, 1, HW_EXECUTE)
 
+# To set memory breakpoint uncomment following statement
+#debugger.bp_set_mem(printf_address, 10)
+
 debugger.run()

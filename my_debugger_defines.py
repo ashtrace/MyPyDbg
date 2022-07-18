@@ -1,28 +1,22 @@
-from asyncio.windows_events import INFINITE
-from ssl import HAS_NEVER_CHECK_COMMON_NAME
-from py_compile import PycInvalidationMode
-from doctest import OutputChecker
-from logging import Handler
-from pickle import FALSE
-from subprocess import *
 from ctypes import *
 
-# Let's map the Microsoft types to ctypes for clarity
+# Map from Microsoft types to ctypes for clarity
 BOOL        = c_bool
 BYTE        = c_byte
 WORD        = c_ushort
 DWORD       = c_ulong
+LONGLONG    = c_long
+ULONGLONG   = c_ulong
+SIZE_T      = c_ulong
+UINT_PTR    = c_ulong
+HANDLE      = c_void_p
+PVOID       = c_void_p
+LPVOID      = c_void_p
 DWORD64     = c_ulonglong
 LPBYTE      = POINTER(c_ubyte)
 LPSTR       = POINTER(c_char)
 LPCSTR      = POINTER(c_char)
-HANDLE      = c_void_p
-PVOID       = c_void_p
-LPVOID      = c_void_p
-UINT_PTR    = c_ulong
-SIZE_T      = c_ulong
-LONGLONG    = c_long
-ULONGLONG   = c_ulong
+LPTSTR      = POINTER(c_char)
 
 
 # Constants
@@ -30,8 +24,6 @@ DEBUG_PROCESS       = 0x00000001
 CREATE_NEW_CONSOLE  = 0x00000010
 PROCESS_ALL_ACCESS  = 0x001F0FFF
 INFINITE            = 0xFFFFFFFF
-DBG_CONTINUE        = 0x00010002
-DBG_EXCEPTION_NOT_HANDLED   = 0x80010001
 
 # Debug event constants
 EXCEPTION_DEBUG_EVENT       = 0x1
@@ -44,14 +36,18 @@ UNLOAD_DLL_DEBUG_EVENT      = 0x7
 OUTPUT_DEBUG_STRING_EVENT   = 0x8
 RIP_EVENT                   = 0x9
 
-# debug exception codes
+# Debug event continue status
+DBG_CONTINUE                = 0x00010002
+DBG_EXCEPTION_NOT_HANDLED   = 0x80010001
+
+# Debug exception codes
 EXCEPTION_ACCESS_VIOLATION  = 0xC0000005
 EXCEPTION_BREAKPOINT        = 0x80000003
 EXCEPTION_GUARD_PAGE        = 0x80000001
 EXCEPTION_SINGLE_STEP       = 0x80000004
 
-# debug exception constants
-EXCEPTION_MAXIMUM_PARAMETERS    = 15
+# Debug exception constants
+EXCEPTION_MAXIMUM_PARAMETERS = 15
 
 # Thread constants for CreateToolhelp32Snapshot()
 TH32CS_SNAPHEAPLIST = 0x00000001
@@ -74,6 +70,46 @@ CONTEXT_DEBUG_REGISTERS = 0x00010010
 HW_EXECUTE  = 0x00000000
 HW_WRITE    = 0x00000001
 HW_ACCESS   = 0x00000003
+
+# Memory page permissions
+PAGE_NOACCESS               = 0x00000001
+PAGE_READONLY               = 0x00000002
+PAGE_READWRITE              = 0x00000004
+PAGE_WRITECOPY              = 0x00000008
+PAGE_EXECUTE                = 0x00000010
+PAGE_EXECUTE_READ           = 0x00000020
+PAGE_EXECUTE_READWRITE      = 0x00000040
+PAGE_EXECUTE_WRITECOPY      = 0x00000080
+PAGE_GUARD                  = 0x00000100
+PAGE_NOCACHE                = 0x00000200
+PAGE_WRITECOMBINE           = 0x00000400
+
+# Data structures for system information
+class PROC_STRUCT(Structure):
+    _fields_ = [
+        ("wProcessorArchitecture",  WORD),
+        ("wReserved",               WORD)
+    ]
+
+class SYSTEM_INFO_UNION(Union):
+    _fields_ = [
+        ("dwOemId",     DWORD),
+        ("sProcStruc",  PROC_STRUCT)
+    ]
+
+class SYSTEM_INFO(Structure):
+    _fields_ = [
+        ("uSysInfo",                        SYSTEM_INFO_UNION),
+        ("dwPageSize",                      DWORD),
+        ("lpMinimumApplicationAddress",     LPVOID),
+        ("lpMaximumApplicationAddress",     LPVOID),
+        ("dwActiveProcessorMask",           DWORD),
+        ("dwNumberOfProcessors",            DWORD),
+        ("dwProcessorType",                 DWORD),
+        ("dwAllocationGranularity",         DWORD),
+        ("wProcessorLevel",                 WORD),
+        ("wProcessorRevision",              WORD)
+    ]
 
 # Data structures for CreateProcessA() function
 class STARTUPINFO(Structure):
@@ -123,14 +159,14 @@ EXCEPTION_RECORD._fields_ = [
 class EXCEPTION_DEBUG_INFO(Structure):
     _fields_ = [
         ("ExceptionRecord", EXCEPTION_RECORD),
-        ("dwFirstChance",   DWORD),
+        ("dwFirstChance",   DWORD)
     ]
 
 # As this premitive debugger deals with Exception events,
 # thus we specify only exeception debug info
 class DEBUG_EVENT_UNION(Union):
     _fields_ = [
-        ("Exception",           EXCEPTION_DEBUG_INFO),
+        ("Exception",           EXCEPTION_DEBUG_INFO)
     ]
 
 class DEBUG_EVENT(Structure):
@@ -138,7 +174,7 @@ class DEBUG_EVENT(Structure):
         ("dwDebugEventCode",    DWORD),
         ("dwProcessId",         DWORD),
         ("dwThreadId",          DWORD),
-        ("u",                   DEBUG_EVENT_UNION),
+        ("u",                   DEBUG_EVENT_UNION)
     ]
 
 
@@ -146,7 +182,7 @@ class DEBUG_EVENT(Structure):
 class M128A(Structure):
     _fields_ = [
         ("Low",     DWORD64),
-        ("High",    DWORD64),
+        ("High",    DWORD64)
     ]
 
 class XMM_SAVE_AREA32(Structure):
@@ -172,7 +208,7 @@ class XMM_SAVE_AREA32(Structure):
 class NEON128(Structure):
     _fields_ = [
         ("Low",     ULONGLONG),
-        ("High",    LONGLONG),
+        ("High",    LONGLONG)
     ]
 
 class DUMMYSTRUCTNAME(Structure):
@@ -268,7 +304,7 @@ class FLOATING_SAVE_AREA(Structure):
         ("DataOffset",      DWORD),
         ("DataSelector",    DWORD),
         ("RegisterArea",    BYTE * 80),
-        ("Cr0NpxState",     DWORD),
+        ("Cr0NpxState",     DWORD)
 ]
 
 # WOW64: Windows 32bit on Windows 64bit
@@ -299,7 +335,7 @@ class WOW64_CONTEXT(Structure):
         ("EFlags",              DWORD),
         ("Esp",                 DWORD),
         ("SegSs",               DWORD),
-        ("ExtendedRegisters",   BYTE * 512),
+        ("ExtendedRegisters",   BYTE * 512)
 ]
 
 
@@ -313,4 +349,17 @@ class THREADENTRY32(Structure):
         ("tpBasePri",           DWORD),
         ("tpDeltaPri",          DWORD),
         ("dwFlags",             DWORD)
+    ]
+
+# Data structures for memory information
+class MEMORY_BASIC_INFORMATION64(Structure):
+    _fields_ = [
+        ("BaseAddress",         PVOID),
+        ("AllocationBase",      PVOID),
+        ("AllocationProtect",   DWORD),
+        ("PartitionId",         DWORD),
+        ("RegionSize",          DWORD64),
+        ("State",               DWORD),
+        ("Protect",             DWORD),
+        ("Type",                DWORD)
     ]

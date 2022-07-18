@@ -13,6 +13,13 @@ from my_debugger_defines import *
 kernel32 = windll.kernel32
 
 class debugger():
+
+#############################################################################
+#                                                                           #
+#                               INITIALIZATION                              #
+#                                                                           #
+#############################################################################
+
     def __init__(self):
         self.debugger_active        = False
         self.first_breakpoint       = True
@@ -24,6 +31,13 @@ class debugger():
         self.exception_address      = None
         self.software_breakpoints   = {}
         self.hardware_breakpoints   = {}
+        self.guarded_pages          = []
+        self.memory_breakpoints     = {}
+
+        # Determine the default page size
+        system_info = SYSTEM_INFO()
+        kernel32.GetSystemInfo(byref(system_info))
+        self.page_size = system_info.dwPageSize
 
 #############################################################################
 #                                                                           #
@@ -362,10 +376,10 @@ class debugger():
                     continue_status = self.exception_handler_breakpoint()
                 
                 elif exception == EXCEPTION_GUARD_PAGE:
-                    print("Guard Page Access Detected.")
+                    self.exception_handler_guard_pages()
 
                 elif exception == EXCEPTION_SINGLE_STEP:
-                    self.exception_handler_single_step()
+                    continue_status = self.exception_handler_single_step()
 
             kernel32.ContinueDebugEvent(debug_event.dwProcessId, debug_event.dwThreadId, continue_status)
 
@@ -408,14 +422,14 @@ class debugger():
     # FUNCTION: exception_handler_single_step
     # INPUT: None
     # PROCESS:
-    #   a) determine if INT1 was indeed caused by hardware breakpoint set by 
+    #   a) determine if INT1 was indeed caused by our hardware breakpoint
     #       a1) print register contents
     #       a2) remove breakpoint and resume process
     # OUTPUT: debug event continue status
     def exception_handler_single_step(self):
         slot = None
 
-        # Determine if the single step event was cause by hardware breakpoint
+        # Determine if the single step event was cause by hardware breakpoint set by us
         if self.context.Dr6 & 0x1 and 0 in self.hardware_breakpoints:
             slot = 0
         elif self.context.Dr6 & 0x2 and 1 in self.hardware_breakpoints:
@@ -442,6 +456,36 @@ class debugger():
         print("[DEBUG > exeception_handler_single_step] Hardware breakpoint removed.")
         
         return continue_status
+
+    # FUNCTION: exception_handler_guard_pages
+    # INPUT: None
+    # PROCESS:
+    #   a) determine if guard page exception was caused by us 
+    #       a1) print register contents
+    #       a2) remove breakpoint and resume process
+    # OUTPUT: success status
+    def exception_handler_guard_pages(self):
+        # We rely on OS's internal mechanism to restore page permissions,
+        # and thus do not change continue_status for ContinueDebugEvent()
+
+        # Validate the cause of guard page exception was indeed one of the breakpoints
+        if self.exception_address in self.memory_breakpoints:
+            print(f"[DEBUG > exeception_handler_guard_pages] Hit user defined memory breakpoint.")
+
+            # print register contents
+            self.reg_resolve()
+            # sleep to demonstrate that process is hung at breakpoint
+            sleep(10)
+
+            # remove breakpoint information from internal data structures
+            self.bp_del_mem(self.exception_address)
+
+            print("[DEBUG > exeception_handler_guard_pages] Memory breakpoint removed.")
+
+            return True
+
+        return False
+
 
 #############################################################################
 #                                                                           #
@@ -546,7 +590,7 @@ class debugger():
         | R | R | R | R | R | R | R | R |         | DR 0 | DR0 | DR 1 | DR1 | DR 2 | DR2 | DR 3 | DR3 |
         | 0 | 0 | 1 | 1 | 2 | 2 | 3 | 3 |         |      |     |      |     |      |     |      |     |
         |___|___|___|___|___|___|___|___|_________|______|_____|______|_____|______|_____|______|_____|
-        0   1   2   3   4   5   6   7   8 - 15   16-17  18-19  20-21 22-23  24-25 26-27  28-29 30-31
+          0   1   2   3   4   5   6   7   8 - 15   16-17  18-19  20-21 22-23  24-25 26-27  28-29 30-31
 
         [!!] bits 32 - 63 are not used (as the number of debug resgisters is same as that in x86)
         '''
@@ -623,4 +667,78 @@ class debugger():
         # remove the breakpoint from the internal list
         del self.hardware_breakpoints[slot]
 
-        return True    
+        return True
+
+#############################################################################
+#                                                                           #
+#                            MEMORY BREAKPOINTS                             #
+#                                                                           #
+#############################################################################
+
+    # FUNCTION: bp_set_mem
+    # INPUT:
+    #   address : memory address to set breakpoint at
+    #   size : size of memory region to guard
+    # PROCESS:
+    #   a) retrieve information related to provided address
+    #   b) while the memory page lies inside memory region to guard
+    #       b1) store the current page address in list tracking pages guarded by debugger
+    #       b2) mark the PAGE_GUARD permissions for current page
+    #       b3) store the related information in a data structure tracking memory breakpoints
+    # OUTPUT: success status
+    def bp_set_mem(self, address, size):
+        mbi = MEMORY_BASIC_INFORMATION64()
+
+        _VirtualQueryEx             = kernel32.VirtualQueryEx
+        _VirtualQueryEx.argtypes    = [HANDLE, LPCVOID, POINTER(MEMORY_BASIC_INFORMATION64), SIZE_T]
+        _VirtualQueryEx.restype     = SIZE_T
+
+        # If VirtualQueryEx() fails to populate entire MEMORY_BASIC_INFORMATION64 structure
+        # return False
+        if kernel32.VirtualQueryEx(self.h_process, address, byref(mbi), sizeof(mbi)) < sizeof(mbi):
+            return False
+        
+        current_page = mbi.BaseAddress
+
+        # Set permissions on all pages affected by memory breakpoint
+        while current_page <= address + size:
+            # Add the page to list of our guarded pages
+            self.guarded_pages.append(current_page)
+
+            _VirtualProtectEx = kernel32.VirtualProtectEx
+            _VirtualProtectEx.argtypes = [HANDLE, LPVOID, SIZE_T, DWORD, POINTER(DWORD)]
+            _VirtualProtectEx.restype = BOOL
+
+            # Store old protection modes and guard the page
+            old_protection = c_ulong(0)
+            if not kernel32.VirtualProtectEx(self.h_process, current_page, size, mbi.Protect | PAGE_GUARD, byref(old_protection)):
+                return False
+            current_page += self.page_size
+
+        # add the memory breakpoint to the list
+        self.memory_breakpoints[address] = (address, size, mbi, old_protection)
+
+        return True
+
+    # FUNCTION: bp_del_mem
+    # INPUT:
+    #   address : location of memory breakpoint
+    # PROCESS:
+    #   a) retrive information related to memory breakpoint
+    #   b) delete memory breakpoint's associated entries in internal data structures
+    # OUTPUT: None
+    def bp_del_mem(self, address):
+        # get size of memory region guarded
+        size = self.memory_breakpoints[address][1]
+        
+        # retrieve the MEMORY_BASIC_INFORMATION associated with given memory address
+        mbi = self.memory_breakpoints[address][2]
+
+        # remove memory pages from list of guarded page
+        current_page = mbi.BaseAddress 
+        while current_page <= address + size:
+            self.guarded_pages.pop()
+            current_page += self.page_size
+
+        # remove the memory breakpoint from the list
+        del self.memory_breakpoints[address]
